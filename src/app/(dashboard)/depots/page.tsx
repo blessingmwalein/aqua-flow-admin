@@ -14,14 +14,17 @@ import {
   CheckCircle2,
   Clock,
   XCircle,
+  SlidersHorizontal,
+  X,
 } from 'lucide-react';
+import { ColumnDef, createColumnHelper } from '@tanstack/react-table';
 
 import {
   useGetDepotsQuery,
   useUpdateDepotMutation,
   useDeleteDepotMutation,
 } from '@/redux/api/depotsApi';
-import type { Depot } from '@/types';
+import type { Depot, ApplicationStatus } from '@/types';
 import { formatDate } from '@/utils';
 import { useToast } from '@/hooks/useToast';
 import { ROUTES } from '@/constants/routes';
@@ -37,6 +40,13 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -46,20 +56,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DataTable } from '@/components/tables';
 
 // ---------------------------------------------------------------------------
-// Status badge
+// Helpers
 // ---------------------------------------------------------------------------
+const colHelper = createColumnHelper<Depot>();
+
 function StatusBadge({ depot }: { depot: Depot }) {
   if (depot.applicationStatus === 'pending') {
     return (
@@ -88,6 +91,167 @@ function StatusBadge({ depot }: { depot: Depot }) {
   return <Badge variant="secondary">Inactive</Badge>;
 }
 
+const APPLICATION_STATUS_OPTIONS: { value: ApplicationStatus; label: string }[] = [
+  { value: 'pending', label: 'Pending Review' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
+];
+
+// ---------------------------------------------------------------------------
+// Column builder
+// ---------------------------------------------------------------------------
+function buildColumns(
+  onView: (d: Depot) => void,
+  onApprove: (d: Depot) => void,
+  onDeactivate: (d: Depot) => void,
+): ColumnDef<Depot, unknown>[] {
+  return [
+    colHelper.accessor('name', {
+      header: 'Depot',
+      enableSorting: true,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div className="flex items-center gap-2 min-w-[160px]">
+            <Warehouse className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            <div>
+              <p className="font-medium text-gray-900 dark:text-gray-100 text-sm">{d.name}</p>
+              {d.companyName && d.companyName !== d.name && (
+                <p className="text-xs text-gray-400">{d.companyName}</p>
+              )}
+            </div>
+          </div>
+        );
+      },
+    }) as ColumnDef<Depot, unknown>,
+
+    colHelper.accessor('city', {
+      header: 'Location',
+      enableSorting: true,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div>
+            <div className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
+              <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
+              {d.city}
+            </div>
+            <p className="text-xs text-gray-400 max-w-[180px] truncate mt-0.5">{d.address}</p>
+          </div>
+        );
+      },
+    }) as ColumnDef<Depot, unknown>,
+
+    colHelper.accessor('phoneNumber', {
+      id: 'contact',
+      header: 'Contact',
+      enableSorting: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div className="flex flex-col gap-0.5 text-sm text-gray-500 dark:text-gray-400">
+            {d.phoneNumber && (
+              <span className="flex items-center gap-1">
+                <Phone className="h-3 w-3 flex-shrink-0" />
+                {d.phoneNumber}
+              </span>
+            )}
+            {d.contactEmail && (
+              <span className="flex items-center gap-1">
+                <Mail className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate max-w-[160px]">{d.contactEmail}</span>
+              </span>
+            )}
+            {!d.phoneNumber && !d.contactEmail && '—'}
+          </div>
+        );
+      },
+    }) as ColumnDef<Depot, unknown>,
+
+    colHelper.accessor('applicationStatus', {
+      header: 'Status',
+      enableSorting: true,
+      cell: ({ row }) => <StatusBadge depot={row.original} />,
+    }) as ColumnDef<Depot, unknown>,
+
+    colHelper.accessor('createdAt', {
+      header: 'Date',
+      enableSorting: true,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+            {formatDate(d.applicationSubmittedAt ?? d.createdAt)}
+          </span>
+        );
+      },
+    }) as ColumnDef<Depot, unknown>,
+
+    {
+      id: 'actions',
+      header: '',
+      enableHiding: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        const canApprove = d.applicationStatus === 'pending' || (!d.isActive && d.applicationStatus !== 'rejected');
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Depot actions">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => onView(d)}>
+                <Eye className="h-4 w-4" />
+                View details
+              </DropdownMenuItem>
+              {canApprove && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onApprove(d)}
+                    className="text-green-600 focus:text-green-600 dark:text-green-400"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    Approve depot
+                  </DropdownMenuItem>
+                </>
+              )}
+              {d.isActive && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onDeactivate(d)}
+                    className="text-red-600 focus:text-red-600 dark:text-red-400"
+                  >
+                    <PowerOff className="h-4 w-4" />
+                    Deactivate
+                  </DropdownMenuItem>
+                </>
+              )}
+              {!canApprove && !d.isActive && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onApprove(d)}
+                    className="text-green-600 focus:text-green-600 dark:text-green-400"
+                  >
+                    <Power className="h-4 w-4" />
+                    Reactivate
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    } as ColumnDef<Depot, unknown>,
+  ];
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -96,15 +260,42 @@ export default function DepotsPage() {
   const toast = useToast();
 
   const [page, setPage] = React.useState(1);
+  const [pageSize, setPageSize] = React.useState(20);
+  const [statusFilter, setStatusFilter] = React.useState<ApplicationStatus | ''>('');
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [confirmApprove, setConfirmApprove] = React.useState<Depot | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = React.useState<Depot | null>(null);
 
-  const { data, isLoading, isFetching } = useGetDepotsQuery({ page, limit: 20 });
+  const { data, isLoading, isFetching } = useGetDepotsQuery({ page, limit: pageSize });
   const [updateDepot, { isLoading: approving }] = useUpdateDepotMutation();
   const [deleteDepot, { isLoading: deactivating }] = useDeleteDepotMutation();
 
-  const depots = data?.data ?? [];
-  const meta = data?.meta;
+  // Client-side search: name, companyName, city, address
+  const displayData = React.useMemo(() => {
+    let rows = data?.data ?? [];
+    if (statusFilter) {
+      rows = rows.filter((d) => d.applicationStatus === statusFilter);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      rows = rows.filter(
+        (d) =>
+          d.name.toLowerCase().includes(q) ||
+          (d.companyName ?? '').toLowerCase().includes(q) ||
+          d.city.toLowerCase().includes(q) ||
+          d.address.toLowerCase().includes(q) ||
+          (d.phoneNumber ?? '').toLowerCase().includes(q) ||
+          (d.contactEmail ?? '').toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [data?.data, statusFilter, searchQuery]);
+
+  const totalCount = statusFilter || searchQuery.trim()
+    ? displayData.length
+    : (data?.meta?.total ?? 0);
+
+  React.useEffect(() => { setPage(1); }, [statusFilter]);
 
   async function handleApprove() {
     if (!confirmApprove) return;
@@ -130,8 +321,16 @@ export default function DepotsPage() {
     }
   }
 
-  const canApprove = (d: Depot) => d.applicationStatus === 'pending' || (!d.isActive && d.applicationStatus !== 'rejected');
-  const canDeactivate = (d: Depot) => d.isActive;
+  const columns = React.useMemo(
+    () => buildColumns(
+      (d) => router.push(ROUTES.DEPOT_DETAIL(d.id)),
+      (d) => setConfirmApprove(d),
+      (d) => setConfirmDeactivate(d),
+    ),
+    [router],
+  );
+
+  const hasFilters = statusFilter !== '';
 
   return (
     <div className="flex flex-col gap-6">
@@ -146,206 +345,65 @@ export default function DepotsPage() {
               Review and manage water distribution depot applications
             </p>
           </div>
-          {meta && (
+          {data?.meta?.total !== undefined && (
             <Badge variant="secondary" className="self-start mt-1">
-              {meta.total.toLocaleString()}
+              {data.meta.total.toLocaleString()}
             </Badge>
           )}
         </div>
       </div>
 
-      {/* Table card */}
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base font-semibold flex items-center gap-2">
-            <Warehouse className="h-4 w-4 text-gray-400" />
-            All Depots
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-0">
-          {isLoading ? (
-            <div className="flex flex-col gap-3 p-6">
-              {Array.from({ length: 5 }).map((_, i) => (
-                <Skeleton key={i} className="h-12 w-full" />
-              ))}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Depot</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {depots.length === 0 ? (
-                    <TableRow>
-                      <TableCell colSpan={6} className="py-12 text-center text-gray-400">
-                        No depots found.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    depots.map((depot) => (
-                      <TableRow key={depot.id}>
-                        {/* Depot name + company */}
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <Warehouse className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                            <div>
-                              <p className="font-medium text-gray-900 dark:text-gray-100">
-                                {depot.name}
-                              </p>
-                              {depot.companyName && depot.companyName !== depot.name && (
-                                <p className="text-xs text-gray-400">{depot.companyName}</p>
-                              )}
-                            </div>
-                          </div>
-                        </TableCell>
-
-                        {/* Location */}
-                        <TableCell>
-                          <div className="flex items-center gap-1 text-sm text-gray-600 dark:text-gray-300">
-                            <MapPin className="h-3.5 w-3.5 text-gray-400 flex-shrink-0" />
-                            <span>{depot.city}</span>
-                          </div>
-                          <p className="text-xs text-gray-400 max-w-[180px] truncate mt-0.5">
-                            {depot.address}
-                          </p>
-                        </TableCell>
-
-                        {/* Contact */}
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5 text-sm text-gray-500 dark:text-gray-400">
-                            {depot.phoneNumber && (
-                              <span className="flex items-center gap-1">
-                                <Phone className="h-3 w-3 flex-shrink-0" />
-                                {depot.phoneNumber}
-                              </span>
-                            )}
-                            {depot.contactEmail && (
-                              <span className="flex items-center gap-1">
-                                <Mail className="h-3 w-3 flex-shrink-0" />
-                                <span className="truncate max-w-[160px]">{depot.contactEmail}</span>
-                              </span>
-                            )}
-                            {!depot.phoneNumber && !depot.contactEmail && '—'}
-                          </div>
-                        </TableCell>
-
-                        {/* Status */}
-                        <TableCell>
-                          <StatusBadge depot={depot} />
-                        </TableCell>
-
-                        {/* Date */}
-                        <TableCell className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-                          {formatDate(depot.applicationSubmittedAt ?? depot.createdAt)}
-                        </TableCell>
-
-                        {/* Actions */}
-                        <TableCell>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                aria-label="Depot actions"
-                              >
-                                <MoreHorizontal className="h-4 w-4" />
-                              </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-44">
-                              <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onClick={() => router.push(ROUTES.DEPOT_DETAIL(depot.id))}
-                              >
-                                <Eye className="h-4 w-4" />
-                                View details
-                              </DropdownMenuItem>
-                              {canApprove(depot) && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() => setConfirmApprove(depot)}
-                                    className="text-green-600 focus:text-green-600 dark:text-green-400"
-                                  >
-                                    <CheckCircle2 className="h-4 w-4" />
-                                    Approve depot
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              {canDeactivate(depot) && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() => setConfirmDeactivate(depot)}
-                                    className="text-red-600 focus:text-red-600 dark:text-red-400"
-                                  >
-                                    <PowerOff className="h-4 w-4" />
-                                    Deactivate
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                              {!canApprove(depot) && !canDeactivate(depot) && (
-                                <>
-                                  <DropdownMenuSeparator />
-                                  <DropdownMenuItem
-                                    onClick={() => setConfirmApprove(depot)}
-                                    className="text-green-600 focus:text-green-600 dark:text-green-400"
-                                  >
-                                    <Power className="h-4 w-4" />
-                                    Reactivate
-                                  </DropdownMenuItem>
-                                </>
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Pagination */}
-      {meta && meta.totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>
-            Page {meta.page} of {meta.totalPages} · {meta.total} depots
-          </span>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!meta.hasPreviousPage || isFetching}
-              onClick={() => setPage((p) => p - 1)}
-            >
-              Previous
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!meta.hasNextPage || isFetching}
-              onClick={() => setPage((p) => p + 1)}
-            >
-              Next
-            </Button>
-          </div>
+      {/* Filter bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+          <SlidersHorizontal className="h-4 w-4" />
+          Filters:
         </div>
-      )}
+        <Select
+          value={statusFilter || '__all__'}
+          onValueChange={(v) => setStatusFilter(v === '__all__' ? '' : (v as ApplicationStatus))}
+        >
+          <SelectTrigger className="h-9 w-48">
+            <SelectValue placeholder="All statuses" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__">All statuses</SelectItem>
+            {APPLICATION_STATUS_OPTIONS.map((o) => (
+              <SelectItem key={o.value} value={o.value}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setStatusFilter(''); setPage(1); }}
+            className="h-9 gap-1.5"
+          >
+            <X className="h-3.5 w-3.5" />
+            Clear filters
+          </Button>
+        )}
+      </div>
 
-      {/* Approve confirm dialog */}
+      {/* Data table */}
+      <DataTable<Depot, unknown>
+        columns={columns}
+        data={displayData}
+        isLoading={isLoading || isFetching}
+        totalCount={totalCount}
+        page={page}
+        pageSize={pageSize}
+        onPageChange={setPage}
+        onPageSizeChange={(s) => { setPageSize(s); setPage(1); }}
+        onSearch={setSearchQuery}
+        searchPlaceholder="Search by name, city, address or contact…"
+        emptyMessage="No depots match the current filters."
+      />
+
+      {/* Approve confirm */}
       <AlertDialog open={!!confirmApprove} onOpenChange={(v) => { if (!v) setConfirmApprove(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -368,7 +426,7 @@ export default function DepotsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Deactivate confirm dialog */}
+      {/* Deactivate confirm */}
       <AlertDialog open={!!confirmDeactivate} onOpenChange={(v) => { if (!v) setConfirmDeactivate(null); }}>
         <AlertDialogContent>
           <AlertDialogHeader>

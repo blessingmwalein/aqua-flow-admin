@@ -1,6 +1,12 @@
 import { baseApi } from "./baseApi";
 import type { Driver, DriverDocument, DriverListParams, PaginatedResult } from "@/types";
 
+interface DepotDriversParams {
+  id: string;
+  page?: number;
+  limit?: number;
+}
+
 export const driversApi = baseApi.injectEndpoints({
   endpoints: (builder) => ({
     getDrivers: builder.query<PaginatedResult<Driver>, DriverListParams>({
@@ -9,6 +15,10 @@ export const driversApi = baseApi.injectEndpoints({
         params,
       }),
       providesTags: ["Drivers"],
+    }),
+    getDriverById: builder.query<Driver, string>({
+      query: (id) => `/admin/drivers/${id}`,
+      providesTags: (_r, _e, id) => [{ type: "Drivers", id }],
     }),
     approveDriver: builder.mutation<Driver, string>({
       query: (id) => ({
@@ -29,13 +39,22 @@ export const driversApi = baseApi.injectEndpoints({
       query: (id) => `/drivers/${id}/documents`,
       providesTags: (_r, _e, id) => [{ type: "Drivers", id: `docs-${id}` }],
     }),
+    getDepotDrivers: builder.query<PaginatedResult<Driver>, DepotDriversParams>({
+      query: ({ id, page, limit }) => ({
+        url: `/admin/depots/${id}/drivers`,
+        params: { page, limit },
+      }),
+      providesTags: (_r, _e, { id }) => [{ type: "Drivers", id: `depot-${id}` }],
+    }),
   }),
   overrideExisting: false,
 });
 
 export const {
   useGetDriversQuery,
+  useGetDriverByIdQuery,
   useApproveDriverMutation,
   useRejectDriverMutation,
   useGetDriverDocumentsQuery,
+  useGetDepotDriversQuery,
 } = driversApi;

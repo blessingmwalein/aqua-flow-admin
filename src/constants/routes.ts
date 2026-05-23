@@ -5,6 +5,7 @@ export const ROUTES = {
   USER_DETAIL: (id: string) => `/users/${id}`,
   DRIVERS: "/drivers",
   ORDERS: "/orders",
+  ORDER_DETAIL: (id: string) => `/orders/${id}`,
   REVENUE: "/revenue",
   DEPOTS: "/depots",
   DEPOT_DETAIL: (id: string) => `/depots/${id}`,

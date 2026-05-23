@@ -10,7 +10,9 @@ import type { NextRequest } from 'next/server';
 // The auth hook mirrors the localStorage token to this cookie on every login.
 const ACCESS_TOKEN_COOKIE = 'aquaflow_access_token';
 
-// Route prefixes that require an authenticated session
+// Route prefixes that require an authenticated session.
+// Matched as exact OR with a trailing slash to avoid false positives
+// (e.g. "/users" must not match "/usersettings").
 const PROTECTED_PREFIXES = [
   '/dashboard',
   '/users',
@@ -23,11 +25,21 @@ const PROTECTED_PREFIXES = [
   '/profile',
 ];
 
-// Public-only routes — authenticated users should be redirected away
+// Public-only routes — authenticated users are redirected away from these
 const AUTH_ROUTES = ['/login'];
 
+function isProtected(pathname: string): boolean {
+  return PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+function isAuthRoute(pathname: string): boolean {
+  return AUTH_ROUTES.some((route) => pathname === route);
+}
+
 function getToken(request: NextRequest): string | undefined {
-  // 1. Check the mirrored cookie (set by useAuth.login)
+  // 1. Check the mirrored cookie (set by useAuth.login / baseApi refresh)
   const cookie = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
   if (cookie) return cookie;
 
@@ -42,23 +54,24 @@ function getToken(request: NextRequest): string | undefined {
 
 export function proxy(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl;
-
-  const isProtectedRoute = PROTECTED_PREFIXES.some((prefix) =>
-    pathname.startsWith(prefix),
-  );
-  const isAuthRoute = AUTH_ROUTES.some((route) => pathname === route);
-
   const token = getToken(request);
 
+  // Root path: redirect to dashboard (server component handles this too, but
+  // belt-and-suspenders so unauthenticated users go to login immediately)
+  if (pathname === '/') {
+    const dest = token ? '/dashboard' : '/login';
+    return NextResponse.redirect(new URL(dest, request.url));
+  }
+
   // Unauthenticated user accessing a protected route → redirect to /login
-  if (isProtectedRoute && !token) {
+  if (isProtected(pathname) && !token) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('from', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // Authenticated user accessing /login → redirect to /dashboard
-  if (isAuthRoute && token) {
+  if (isAuthRoute(pathname) && token) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 

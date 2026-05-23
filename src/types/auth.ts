@@ -33,7 +33,11 @@ export interface LoginData {
 // What the login endpoint actually returns
 export type LoginResponse = ApiEnvelope<LoginData>;
 
-export interface RefreshResponse {
+export interface RefreshData {
   accessToken: string;
   refreshToken: string;
+  expiresIn: number;
+  user: AuthUser;
 }
+
+export type RefreshResponse = ApiEnvelope<RefreshData>;

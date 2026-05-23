@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   CheckCircle,
   Clock,
@@ -20,8 +21,12 @@ import {
   Calendar,
   AlertCircle,
   ExternalLink,
+  SlidersHorizontal,
+  Warehouse,
+  MapPin,
 } from 'lucide-react';
 import type { ColumnDef } from '@tanstack/react-table';
+import { createColumnHelper } from '@tanstack/react-table';
 import {
   Sheet,
   SheetContent,
@@ -50,6 +55,11 @@ import {
   TabsTrigger,
   TabsContent,
   Separator,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '@/components/ui';
 import {
   Dialog,
@@ -60,22 +70,21 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   useGetDriversQuery,
+  useGetDriverByIdQuery,
   useApproveDriverMutation,
   useRejectDriverMutation,
   useGetDriverDocumentsQuery,
 } from '@/redux/api/driversApi';
+import { ROUTES } from '@/constants/routes';
 import { useToast } from '@/hooks';
 import { formatDate, formatCurrency, getInitials } from '@/utils';
 import type { Driver, DriverApprovalStatus, DriverDocument } from '@/types';
 
-type FilterTab = 'all' | DriverApprovalStatus;
-
-const FILTER_TABS: { label: string; value: FilterTab }[] = [
-  { label: 'All', value: 'all' },
-  { label: 'Pending', value: 'pending' },
-  { label: 'Under Review', value: 'under_review' },
-  { label: 'Approved', value: 'approved' },
-  { label: 'Rejected', value: 'rejected' },
+const APPROVAL_STATUS_OPTIONS: { value: DriverApprovalStatus; label: string }[] = [
+  { value: 'pending', label: 'Pending' },
+  { value: 'under_review', label: 'Under Review' },
+  { value: 'approved', label: 'Approved' },
+  { value: 'rejected', label: 'Rejected' },
 ];
 
 const DOC_TYPE_LABELS: Record<string, string> = {
@@ -314,12 +323,14 @@ function DriverDrawer({
   onOpenChange,
   onApprove,
   onReject,
+  onViewDepot,
 }: {
   driver: Driver | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onApprove: (d: Driver) => void;
   onReject: (d: Driver) => void;
+  onViewDepot: (depotId: string) => void;
 }) {
   const canActOnApproval =
     driver?.approvalStatus === 'pending' || driver?.approvalStatus === 'under_review';
@@ -400,6 +411,12 @@ function DriverDrawer({
                       <FileText className="h-3.5 w-3.5" />
                       Documents
                     </TabsTrigger>
+                    {driver.depot && (
+                      <TabsTrigger value="depot" className="flex-1 gap-1.5">
+                        <Warehouse className="h-3.5 w-3.5" />
+                        Depot
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   {/* ── Basic Info ── */}
@@ -476,6 +493,79 @@ function DriverDrawer({
                   <TabsContent value="documents" className="mt-0">
                     <DocumentsTab driverId={driver.id} />
                   </TabsContent>
+
+                  {/* ── Depot ── */}
+                  {driver.depot && (
+                    <TabsContent value="depot" className="mt-0">
+                      <div className="flex flex-col gap-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-950/30">
+                              <Warehouse className="h-5 w-5 text-blue-500" />
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">
+                                {driver.depot.name}
+                              </p>
+                              {driver.depot.companyName && driver.depot.companyName !== driver.depot.name && (
+                                <p className="text-xs text-gray-400">{driver.depot.companyName}</p>
+                              )}
+                            </div>
+                          </div>
+                          <Badge
+                            variant={
+                              driver.depot.applicationStatus === 'approved' || driver.depot.isActive
+                                ? 'success'
+                                : driver.depot.applicationStatus === 'rejected'
+                                ? 'destructive'
+                                : 'warning'
+                            }
+                            className="flex-shrink-0 text-xs"
+                          >
+                            {driver.depot.applicationStatus ?? (driver.depot.isActive ? 'active' : 'inactive')}
+                          </Badge>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <InfoRow
+                            icon={MapPin}
+                            label="Address"
+                            value={driver.depot.address}
+                          />
+                          <InfoRow label="City" value={driver.depot.city} />
+                          {driver.depot.phoneNumber && (
+                            <InfoRow icon={Phone} label="Phone" value={driver.depot.phoneNumber} />
+                          )}
+                          {driver.depot.contactEmail && (
+                            <InfoRow icon={Mail} label="Email" value={driver.depot.contactEmail} />
+                          )}
+                          {driver.depot.companyRegistrationNumber && (
+                            <InfoRow label="Reg. Number" value={
+                              <span className="font-mono text-xs">{driver.depot.companyRegistrationNumber}</span>
+                            } />
+                          )}
+                          {driver.depot.taxId && (
+                            <InfoRow label="Tax ID" value={
+                              <span className="font-mono text-xs">{driver.depot.taxId}</span>
+                            } />
+                          )}
+                        </div>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="w-full gap-2 mt-1"
+                          onClick={() => {
+                            onViewDepot(driver.depot!.id);
+                            onOpenChange(false);
+                          }}
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          View depot page
+                        </Button>
+                      </div>
+                    </TabsContent>
+                  )}
                 </Tabs>
               </div>
             </ScrollArea>
@@ -507,12 +597,174 @@ function DriverDrawer({
 }
 
 // ---------------------------------------------------------------------------
+// Column helper (defined outside the component to avoid recreation on render)
+// ---------------------------------------------------------------------------
+const colHelper = createColumnHelper<Driver>();
+
+function buildColumns(
+  onView: (d: Driver) => void,
+  onApprove: (d: Driver) => void,
+  onReject: (d: Driver) => void,
+  onViewDepot: (depotId: string) => void,
+): ColumnDef<Driver, unknown>[] {
+  return [
+    colHelper.accessor(
+      (row) => `${row.firstName} ${row.lastName}`,
+      {
+        id: 'name',
+        header: 'Driver',
+        enableSorting: true,
+        cell: ({ row }) => {
+          const d = row.original;
+          return (
+            <div className="flex items-center gap-3 min-w-[180px]">
+              <Avatar className="h-9 w-9 flex-shrink-0">
+                {d.photoUrl && <AvatarImage src={d.photoUrl} alt={`${d.firstName} ${d.lastName}`} />}
+                <AvatarFallback className="text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
+                  {getInitials(d.firstName, d.lastName)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[140px] text-sm">
+                  {d.firstName} {d.lastName}
+                </p>
+                <p className="text-xs text-gray-400 truncate max-w-[140px]">{d.email}</p>
+              </div>
+            </div>
+          );
+        },
+      },
+    ) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('phoneNumber', {
+      id: 'contact',
+      header: 'Contact & Vehicle',
+      enableSorting: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        return (
+          <div className="flex flex-col gap-0.5 min-w-[160px]">
+            <span className="text-sm text-gray-700 dark:text-gray-300">{d.phoneNumber ?? '—'}</span>
+            {d.vehicle ? (
+              <span className="text-xs text-gray-400">
+                {d.vehicle.make} {d.vehicle.model} · {d.vehicle.plateNumber}
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400">No vehicle</span>
+            )}
+          </div>
+        );
+      },
+    }) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('depot', {
+      id: 'depot',
+      header: 'Depot',
+      enableSorting: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        if (!d.depot) {
+          return <span className="text-xs text-gray-400">Independent</span>;
+        }
+        return (
+          <button
+            type="button"
+            onClick={() => onViewDepot(d.depot!.id)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-400 dark:hover:bg-blue-950/50 transition-colors max-w-[160px]"
+          >
+            <Warehouse className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{d.depot.name}</span>
+          </button>
+        );
+      },
+    }) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('approvalStatus', {
+      header: 'Approval',
+      enableSorting: true,
+      cell: ({ getValue }) => (
+        <Badge className={`text-xs w-fit ${approvalBadgeClass(getValue())}`}>
+          {getValue().replace('_', ' ')}
+        </Badge>
+      ),
+    }) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('onlineStatus', {
+      header: 'Online',
+      enableSorting: true,
+      cell: ({ getValue }) => (
+        <Badge className={`text-xs w-fit ${onlineStatusClass(getValue())}`}>
+          {getValue()}
+        </Badge>
+      ),
+    }) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('averageRating', {
+      header: 'Rating',
+      enableSorting: true,
+      cell: ({ getValue, row }) => (
+        <span className="text-sm">{(getValue() ?? 0).toFixed(1)}★ · {row.original.totalRatings ?? 0} reviews</span>
+      ),
+    }) as ColumnDef<Driver, unknown>,
+    colHelper.accessor('createdAt', {
+      header: 'Registered',
+      enableSorting: true,
+      cell: ({ getValue }) => (
+        <span className="text-sm text-gray-500 whitespace-nowrap">{formatDate(getValue())}</span>
+      ),
+    }) as ColumnDef<Driver, unknown>,
+    {
+      id: 'actions',
+      header: '',
+      enableHiding: false,
+      cell: ({ row }) => {
+        const d = row.original;
+        const canAct = d.approvalStatus === 'pending' || d.approvalStatus === 'under_review';
+        return (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon" className="h-8 w-8">
+                <MoreHorizontal className="h-4 w-4" />
+                <span className="sr-only">Actions</span>
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuItem onClick={() => onView(d)}>
+                <Eye className="h-4 w-4" />
+                View Details
+              </DropdownMenuItem>
+              {canAct && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onClick={() => onApprove(d)}
+                    className="text-emerald-600 dark:text-emerald-400"
+                  >
+                    <ThumbsUp className="h-4 w-4" />
+                    Approve
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onReject(d)}
+                    className="text-red-600 dark:text-red-400"
+                  >
+                    <ThumbsDown className="h-4 w-4" />
+                    Reject
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        );
+      },
+    } as ColumnDef<Driver, unknown>,
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 export default function DriversPage() {
   const toast = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [activeTab, setActiveTab] = React.useState<FilterTab>('all');
+  const [approvalFilter, setApprovalFilter] = React.useState<DriverApprovalStatus | ''>('');
+  const [searchQuery, setSearchQuery] = React.useState('');
   const [page, setPage] = React.useState(1);
   const [pageSize, setPageSize] = React.useState(10);
 
@@ -520,29 +772,50 @@ export default function DriversPage() {
   const [approveTarget, setApproveTarget] = React.useState<Driver | null>(null);
   const [rejectTarget, setRejectTarget] = React.useState<Driver | null>(null);
 
-  const queryParams = {
+  // Deep-link from notification: ?driverId=xxx opens the drawer for that driver
+  const pendingDriverId = searchParams.get('driverId');
+  const { data: pendingDriver } = useGetDriverByIdQuery(pendingDriverId ?? '', {
+    skip: !pendingDriverId,
+  });
+  React.useEffect(() => {
+    if (pendingDriver && pendingDriverId) {
+      setSelectedDriver(pendingDriver);
+      router.replace(ROUTES.DRIVERS);
+    }
+  }, [pendingDriver, pendingDriverId, router]);
+
+  const queryParams = React.useMemo(() => ({
     page,
     limit: pageSize,
-    ...(activeTab !== 'all' ? { approvalStatus: activeTab } : {}),
-  };
+    ...(approvalFilter ? { approvalStatus: approvalFilter } : {}),
+  }), [page, pageSize, approvalFilter]);
 
   const { data, isLoading, isFetching } = useGetDriversQuery(queryParams);
   const [approveDriver, { isLoading: isApproving }] = useApproveDriverMutation();
   const [rejectDriver, { isLoading: isRejecting }] = useRejectDriverMutation();
 
-  const drivers = data?.data ?? [];
-  const totalCount = data?.meta?.total ?? 0;
+  const displayData = React.useMemo(() => {
+    if (!data?.data) return [];
+    if (!searchQuery.trim()) return data.data;
+    const q = searchQuery.toLowerCase();
+    return data.data.filter(
+      (d) =>
+        `${d.firstName} ${d.lastName}`.toLowerCase().includes(q) ||
+        d.email.toLowerCase().includes(q) ||
+        (d.phoneNumber ?? '').toLowerCase().includes(q) ||
+        (d.vehicle?.make ?? '').toLowerCase().includes(q) ||
+        (d.vehicle?.model ?? '').toLowerCase().includes(q) ||
+        (d.vehicle?.plateNumber ?? '').toLowerCase().includes(q),
+    );
+  }, [data?.data, searchQuery]);
 
-  const approvedCount = drivers.filter((d) => d.approvalStatus === 'approved').length;
-  const pendingCount = drivers.filter(
+  const totalCount = searchQuery.trim() ? displayData.length : (data?.meta?.total ?? 0);
+
+  const approvedCount = displayData.filter((d) => d.approvalStatus === 'approved').length;
+  const pendingCount = displayData.filter(
     (d) => d.approvalStatus === 'pending' || d.approvalStatus === 'under_review',
   ).length;
-  const rejectedCount = drivers.filter((d) => d.approvalStatus === 'rejected').length;
-
-  function handleTabChange(value: string) {
-    setActiveTab(value as FilterTab);
-    setPage(1);
-  }
+  const rejectedCount = displayData.filter((d) => d.approvalStatus === 'rejected').length;
 
   async function handleApprove() {
     if (!approveTarget) return;
@@ -568,138 +841,15 @@ export default function DriversPage() {
     }
   }
 
-  // Slimmed-down columns — detail lives in the drawer
-  const columns: ColumnDef<Driver>[] = [
-    {
-      id: 'driver',
-      header: 'Driver',
-      cell: ({ row }) => {
-        const d = row.original;
-        return (
-          <div className="flex items-center gap-3 min-w-[180px]">
-            <Avatar className="h-9 w-9 flex-shrink-0">
-              {d.photoUrl && <AvatarImage src={d.photoUrl} alt={`${d.firstName} ${d.lastName}`} />}
-              <AvatarFallback className="text-xs font-semibold bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">
-                {getInitials(d.firstName, d.lastName)}
-              </AvatarFallback>
-            </Avatar>
-            <div className="min-w-0">
-              <p className="font-medium text-gray-900 dark:text-gray-100 truncate max-w-[140px] text-sm">
-                {d.firstName} {d.lastName}
-              </p>
-              <p className="text-xs text-gray-400 truncate max-w-[140px]">{d.email}</p>
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'contact',
-      header: 'Contact & Vehicle',
-      cell: ({ row }) => {
-        const d = row.original;
-        return (
-          <div className="flex flex-col gap-0.5 min-w-[160px]">
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              {d.phoneNumber ?? '—'}
-            </span>
-            {d.vehicle ? (
-              <span className="text-xs text-gray-400">
-                {d.vehicle.make} {d.vehicle.model} · {d.vehicle.plateNumber}
-              </span>
-            ) : (
-              <span className="text-xs text-gray-400">No vehicle</span>
-            )}
-          </div>
-        );
-      },
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      cell: ({ row }) => {
-        const d = row.original;
-        return (
-          <div className="flex flex-col gap-1.5">
-            <Badge className={`text-xs w-fit ${approvalBadgeClass(d.approvalStatus)}`}>
-              {d.approvalStatus.replace('_', ' ')}
-            </Badge>
-            <Badge className={`text-xs w-fit ${onlineStatusClass(d.onlineStatus)}`}>
-              {d.onlineStatus}
-            </Badge>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'performance',
-      header: 'Performance',
-      cell: ({ row }) => {
-        const d = row.original;
-        return (
-          <div className="flex flex-col gap-0.5 min-w-[100px]">
-            <span className="text-sm text-gray-700 dark:text-gray-300">
-              {(d.averageRating ?? 0).toFixed(1)}★ · {d.totalRatings} reviews
-            </span>
-            <span className="text-xs text-gray-400">{d.totalDeliveries} deliveries</span>
-          </div>
-        );
-      },
-    },
-    {
-      id: 'registered',
-      header: 'Registered',
-      cell: ({ row }) => (
-        <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
-          {formatDate(row.original.createdAt)}
-        </span>
-      ),
-    },
-    {
-      id: 'actions',
-      header: '',
-      enableHiding: false,
-      cell: ({ row }) => {
-        const d = row.original;
-        const canAct = d.approvalStatus === 'pending' || d.approvalStatus === 'under_review';
-        return (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8">
-                <MoreHorizontal className="h-4 w-4" />
-                <span className="sr-only">Actions</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-44">
-              <DropdownMenuItem onClick={() => setSelectedDriver(d)}>
-                <Eye className="h-4 w-4" />
-                View Details
-              </DropdownMenuItem>
-              {canAct && (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => setApproveTarget(d)}
-                    className="text-emerald-600 dark:text-emerald-400"
-                  >
-                    <ThumbsUp className="h-4 w-4" />
-                    Approve
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setRejectTarget(d)}
-                    className="text-red-600 dark:text-red-400"
-                  >
-                    <ThumbsDown className="h-4 w-4" />
-                    Reject
-                  </DropdownMenuItem>
-                </>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        );
-      },
-    },
-  ];
+  const columns = React.useMemo(
+    () => buildColumns(
+      setSelectedDriver,
+      setApproveTarget,
+      setRejectTarget,
+      (depotId) => router.push(ROUTES.DEPOT_DETAIL(depotId)),
+    ),
+    [router],
+  );
 
   return (
     <div className="flex flex-col gap-6 p-6">
@@ -739,28 +889,54 @@ export default function DriversPage() {
         />
       </div>
 
-      {/* Filter tabs + table */}
+      {/* Filter bar + table */}
       <div className="flex flex-col gap-4">
-        <Tabs value={activeTab} onValueChange={handleTabChange}>
-          <TabsList className="w-full sm:w-auto">
-            {FILTER_TABS.map((tab) => (
-              <TabsTrigger key={tab.value} value={tab.value}>
-                {tab.label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400">
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters:
+          </div>
+          <Select
+            value={approvalFilter || '__all__'}
+            onValueChange={(v) => {
+              setApprovalFilter(v === '__all__' ? '' : (v as DriverApprovalStatus));
+              setPage(1);
+            }}
+          >
+            <SelectTrigger className="h-9 w-48">
+              <SelectValue placeholder="All statuses" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All statuses</SelectItem>
+              {APPROVAL_STATUS_OPTIONS.map((o) => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {approvalFilter && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => { setApprovalFilter(''); setPage(1); }}
+              className="h-9 gap-1.5"
+            >
+              <X className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          )}
+        </div>
 
         <DataTable
           columns={columns}
-          data={drivers}
+          data={displayData}
           isLoading={isLoading || isFetching}
           totalCount={totalCount}
           page={page}
           pageSize={pageSize}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
-          searchPlaceholder="Search drivers…"
+          onSearch={setSearchQuery}
+          searchPlaceholder="Search by name, email, phone or vehicle…"
           emptyMessage="No drivers found."
         />
       </div>
@@ -772,6 +948,7 @@ export default function DriversPage() {
         onOpenChange={(v) => { if (!v) setSelectedDriver(null); }}
         onApprove={(d) => { setApproveTarget(d); }}
         onReject={(d) => { setRejectTarget(d); }}
+        onViewDepot={(depotId) => { setSelectedDriver(null); router.push(ROUTES.DEPOT_DETAIL(depotId)); }}
       />
 
       {/* Approve modal */}

@@ -7,7 +7,6 @@ import {
   Search,
   Sun,
   Moon,
-  Bell,
   User as UserIcon,
   Settings,
   LogOut,
@@ -16,6 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { NotificationDropdown } from '@/components/NotificationDropdown';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,8 +25,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
-import { useAppDispatch, useAppSelector } from '@/redux/store';
+import { useAppDispatch } from '@/redux/store';
 import { toggleSidebar } from '@/redux/slices/uiSlice';
 import { useAuth } from '@/hooks';
 import { Breadcrumbs } from './Breadcrumbs';
@@ -42,12 +41,8 @@ function getUserInitials(firstName?: string, lastName?: string): string {
 export function Topbar() {
   const dispatch = useAppDispatch();
   const router = useRouter();
-  const { theme, setTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
   const { user, logout } = useAuth();
-
-  const unreadCount = useAppSelector(
-    (state) => state.notifications.unreadCount
-  );
 
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -102,29 +97,19 @@ export function Topbar() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+          onClick={() => setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')}
           className="text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
           aria-label="Toggle theme"
         >
-          <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+          {resolvedTheme === 'dark' ? (
+            <Sun className="h-5 w-5" />
+          ) : (
+            <Moon className="h-5 w-5" />
+          )}
         </Button>
 
         {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative text-gray-600 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800"
-          aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
-          onClick={() => router.push(ROUTES.DASHBOARD)}
-        >
-          <Bell className="h-5 w-5" />
-          {unreadCount > 0 && (
-            <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold leading-none text-white dark:bg-blue-500">
-              {unreadCount > 99 ? '99+' : unreadCount}
-            </span>
-          )}
-        </Button>
+        <NotificationDropdown />
 
         {/* Profile dropdown */}
         <DropdownMenu>

@@ -25,7 +25,7 @@ import {
   useUpdateDepotMutation,
   useDeleteDepotMutation,
 } from '@/redux/api/depotsApi';
-import { useGetDriversQuery } from '@/redux/api/driversApi';
+import { useGetDepotDriversQuery } from '@/redux/api/driversApi';
 import { formatDate } from '@/utils';
 import { useToast } from '@/hooks/useToast';
 
@@ -209,7 +209,7 @@ function DocumentCard({
 // ---------------------------------------------------------------------------
 function DriversTab({ depotId }: { depotId: string }) {
   const [page, setPage] = React.useState(1);
-  const { data, isLoading } = useGetDriversQuery({ depotId, page, limit: 15 });
+  const { data, isLoading } = useGetDepotDriversQuery({ id: depotId, page, limit: 15 });
   const drivers = data?.data ?? [];
   const meta = data?.meta;
 

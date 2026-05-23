@@ -27,6 +27,8 @@ export interface Vehicle {
   capacity?: number;
 }
 
+export type DriverType = 'individual' | 'depot_affiliated';
+
 export interface Driver {
   id: string;
   userId: string;
@@ -47,6 +49,9 @@ export interface Driver {
   rejectionReason?: string;
   approvedAt?: string;
   approvedBy?: string;
+  driverType?: DriverType;
+  depotId?: string;
+  depot?: import('./depots').Depot;
   createdAt: string;
   updatedAt: string;
 }

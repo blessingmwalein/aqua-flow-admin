@@ -7,3 +7,4 @@ export * from "./revenue";
 export * from "./users";
 export * from "./depots";
 export * from "./pricing";
+export * from "./notifications";
